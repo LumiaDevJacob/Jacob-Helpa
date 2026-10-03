@@ -1,171 +1,112 @@
-// Jacob Helpa - a small, friendly command-line helper.
+// Jacob Helpa - a desktop helper app.
 //
-// It presents a simple menu of handy little utilities. Run it with no
-// arguments for the interactive menu, or pass a command directly, e.g.:
+// The program is a single self-contained executable. On launch it starts a
+// local-only HTTP server on a random high port, then opens the bundled UI in a
+// chromeless browser window so it looks and behaves like a native app.
 //
-//	Jacob Helpa.exe time
-//	Jacob Helpa.exe calc 12 * 8
-//	Jacob Helpa.exe flip
+// Nothing is exposed to the network: the listener binds to 127.0.0.1 and every
+// request must carry the session token minted at startup.
 package main
 
 import (
-	"bufio"
+	"context"
+	"errors"
 	"fmt"
-	"math/rand"
+	"log"
+	"net"
+	"net/http"
 	"os"
-	"runtime"
-	"strconv"
-	"strings"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
 )
 
-const appName = "Jacob Helpa"
-const version = "1.0.0"
+const (
+	appName = "Jacob Helpa"
+	version = "2.0.0"
+)
 
 func main() {
-	args := os.Args[1:]
-	if len(args) > 0 {
-		// Direct command mode.
-		runCommand(args[0], args[1:])
-		return
+	logFile := setupLogging()
+	if logFile != nil {
+		defer logFile.Close()
 	}
-	interactiveMenu()
-}
 
-func interactiveMenu() {
-	banner()
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Println()
-		fmt.Println("What can I help you with?")
-		fmt.Println("  1) time   - show the current date & time")
-		fmt.Println("  2) calc   - do quick arithmetic  (e.g. 12 * 8)")
-		fmt.Println("  3) flip   - flip a coin")
-		fmt.Println("  4) roll   - roll a dice (1-6)")
-		fmt.Println("  5) info   - show system info")
-		fmt.Println("  6) about  - about this program")
-		fmt.Println("  q) quit")
-		fmt.Print("\n> ")
+	log.Printf("%s %s starting", appName, version)
 
-		line, err := reader.ReadString('\n')
-		if err != nil { // EOF (e.g. piped input ended)
-			fmt.Println("\nGoodbye!")
-			return
+	app, err := newApp()
+	if err != nil {
+		fatal(fmt.Errorf("could not start: %w", err))
+	}
+
+	// Port 0 lets the OS hand us a free port, so two copies never collide.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fatal(fmt.Errorf("could not open a local port: %w", err))
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	app.host = fmt.Sprintf("127.0.0.1:%d", addr.Port)
+
+	srv := &http.Server{
+		Handler:           app.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("server stopped: %v", err)
+			app.shutdown()
 		}
-		choice := strings.TrimSpace(line)
+	}()
 
-		switch strings.ToLower(choice) {
-		case "1", "time":
-			showTime()
-		case "2", "calc":
-			fmt.Print("Enter an expression (e.g. 12 * 8): ")
-			expr, _ := reader.ReadString('\n')
-			calc(strings.Fields(strings.TrimSpace(expr)))
-		case "3", "flip":
-			flip()
-		case "4", "roll":
-			roll()
-		case "5", "info":
-			sysInfo()
-		case "6", "about":
-			about()
-		case "q", "quit", "exit":
-			fmt.Println("Goodbye!")
-			return
-		case "":
-			// ignore empty input
-		default:
-			fmt.Printf("Sorry, I don't know %q. Try again.\n", choice)
-		}
+	url := fmt.Sprintf("http://%s/?t=%s", app.host, app.token)
+	log.Printf("ui available at http://%s", app.host)
+
+	if err := openWindow(url); err != nil {
+		log.Printf("could not open an app window: %v", err)
+		fmt.Printf("Open this in your browser:\n\n  %s\n\n", url)
 	}
-}
 
-func runCommand(cmd string, rest []string) {
-	switch strings.ToLower(cmd) {
-	case "time":
-		showTime()
-	case "calc":
-		calc(rest)
-	case "flip":
-		flip()
-	case "roll":
-		roll()
-	case "info":
-		sysInfo()
-	case "about", "version", "-v", "--version":
-		about()
-	case "help", "-h", "--help":
-		banner()
-		fmt.Println("Commands: time | calc <a> <op> <b> | flip | roll | info | about | help")
-	default:
-		fmt.Printf("Unknown command %q. Run with 'help' for options.\n", cmd)
+	// Quit on a window close (the UI tells us), Ctrl+C, or a kill signal.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-app.done:
+		log.Printf("ui closed, shutting down")
+	case s := <-signals:
+		log.Printf("got signal %v, shutting down", s)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	log.Printf("goodbye")
 }
 
-func banner() {
-	fmt.Printf("=== %s v%s ===\n", appName, version)
-	fmt.Println("Your friendly little helper.")
-}
-
-func showTime() {
-	now := time.Now()
-	fmt.Println("Current time: " + now.Format("Monday, 02 Jan 2006  15:04:05"))
-}
-
-func calc(parts []string) {
-	if len(parts) != 3 {
-		fmt.Println("Please give exactly: <number> <op> <number>  (op is + - * or /)")
-		return
+// setupLogging writes a rolling log next to the app data. Builds for Windows
+// are linked with -H=windowsgui and so have no console to print to.
+func setupLogging() *os.File {
+	log.SetFlags(log.Ldate | log.Ltime)
+	dir, err := dataDir()
+	if err != nil {
+		return nil
 	}
-	a, err1 := strconv.ParseFloat(parts[0], 64)
-	b, err2 := strconv.ParseFloat(parts[2], 64)
-	if err1 != nil || err2 != nil {
-		fmt.Println("Both operands must be numbers.")
-		return
+	path := filepath.Join(dir, "jacob-helpa.log")
+	// Keep the log from growing without bound across runs.
+	if info, err := os.Stat(path); err == nil && info.Size() > 1<<20 {
+		_ = os.Remove(path)
 	}
-	var result float64
-	switch parts[1] {
-	case "+":
-		result = a + b
-	case "-":
-		result = a - b
-	case "*", "x", "X":
-		result = a * b
-	case "/":
-		if b == 0 {
-			fmt.Println("Cannot divide by zero.")
-			return
-		}
-		result = a / b
-	default:
-		fmt.Printf("Unknown operator %q. Use + - * or /.\n", parts[1])
-		return
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil
 	}
-	fmt.Printf("= %g\n", result)
+	log.SetOutput(f)
+	return f
 }
 
-func flip() {
-	if rand.Intn(2) == 0 {
-		fmt.Println("Heads!")
-	} else {
-		fmt.Println("Tails!")
-	}
-}
-
-func roll() {
-	fmt.Printf("You rolled a %d.\n", rand.Intn(6)+1)
-}
-
-func sysInfo() {
-	fmt.Printf("OS:   %s\n", runtime.GOOS)
-	fmt.Printf("Arch: %s\n", runtime.GOARCH)
-	fmt.Printf("CPUs: %d\n", runtime.NumCPU())
-	if host, err := os.Hostname(); err == nil {
-		fmt.Printf("Host: %s\n", host)
-	}
-}
-
-func about() {
-	fmt.Printf("%s v%s\n", appName, version)
-	fmt.Println("A simple helper utility. Built with Go.")
+func fatal(err error) {
+	log.Printf("fatal: %v", err)
+	fmt.Fprintf(os.Stderr, "%s could not start: %v\n", appName, err)
+	os.Exit(1)
 }

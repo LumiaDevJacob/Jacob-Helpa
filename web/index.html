@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jacob Helpa</title>
+<link rel="stylesheet" href="vendor/glasskit.min.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ======================= WELCOME / LOADING ======================= -->
+<div class="welcome" id="welcome">
+  <div class="welcome__bg" id="welcomeBg"></div>
+  <div class="welcome__veil"></div>
+
+  <div class="welcome__inner">
+    <div class="brand">
+      <svg class="brand__mark" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="mark__ring" cx="60" cy="60" r="50"/>
+        <circle class="mark__ring mark__ring--inner" cx="60" cy="60" r="36"/>
+        <path class="mark__stroke" d="M78 34 V70 a16 16 0 0 1 -32 0"/>
+        <circle class="mark__dot" cx="60" cy="60" r="3.5"/>
+      </svg>
+
+      <h1 class="brand__word" id="brandWord" aria-label="Jacob Helpa"></h1>
+      <p class="brand__tag"><span id="brandTag"></span><i class="caret"></i></p>
+    </div>
+
+    <div class="boot" id="boot">
+      <div class="boot__track">
+        <div class="boot__fill" id="bootFill"></div>
+        <div class="boot__gloss"></div>
+      </div>
+      <div class="boot__meta">
+        <span class="boot__label" id="bootLabel">Waking up</span>
+        <span class="boot__pct" id="bootPct">0%</span>
+      </div>
+      <ul class="boot__log" id="bootLog"></ul>
+    </div>
+
+    <button class="glass-btn glass-btn--primary welcome__enter" id="enterBtn">
+      <span>Enter</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+
+  <p class="welcome__hint" id="welcomeHint">Built by Jacob</p>
+</div>
+
+<!-- ============================= APP ============================= -->
+<div class="app" id="app" aria-hidden="true">
+
+  <aside class="side">
+    <div class="side__brand">
+      <svg class="side__mark" viewBox="0 0 120 120" aria-hidden="true">
+        <circle cx="60" cy="60" r="50"/>
+        <path d="M78 34 V70 a16 16 0 0 1 -32 0"/>
+      </svg>
+      <div class="side__name">
+        <strong>Jacob Helpa</strong>
+        <small id="sideVersion">v2</small>
+      </div>
+    </div>
+
+    <nav class="side__nav" id="nav">
+      <button class="navitem is-active" data-view="home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="navitem" data-view="passwords">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        <span>Passwords</span>
+      </button>
+      <button class="navitem" data-view="usernames">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>
+        <span>Usernames</span>
+      </button>
+      <button class="navitem" data-view="tokens">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4l-9 9 2 2 9-9z"/><circle cx="17.5" cy="6.5" r="3"/><path d="M5 19l3-3"/></svg>
+        <span>Keys</span>
+      </button>
+      <button class="navitem" data-view="hash">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16"/></svg>
+        <span>Hashes</span>
+      </button>
+      <button class="navitem" data-view="text">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h10M5 18h7"/></svg>
+        <span>Text</span>
+      </button>
+      <button class="navitem" data-view="vault">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="12" r="3.5"/><path d="M12 15.5V18"/></svg>
+        <span>Vault</span>
+      </button>
+      <button class="navitem" data-view="system">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span>System</span>
+      </button>
+      <button class="navitem" data-view="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <button class="side__quit" id="quitBtn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H6a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h4M15 8l4 4-4 4M19 12H9"/></svg>
+      <span>Quit</span>
+    </button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h2 class="topbar__title" id="viewTitle">Home</h2>
+        <p class="topbar__sub" id="viewSub">Everything in one place</p>
+      </div>
+      <div class="topbar__right">
+        <span class="glass-badge" id="clock">--:--</span>
+      </div>
+    </header>
+
+    <div class="views" id="views">
+
+      <!-- ---------------------------- HOME ---------------------------- -->
+      <section class="view is-active" data-view="home">
+        <div class="hero glass-card glass-card--glow">
+          <h3 class="hero__hi" id="heroHi">Welcome back</h3>
+          <p class="hero__text">Pick a tool on the left, or start with one of these.</p>
+          <div class="hero__row">
+            <button class="glass-btn glass-btn--primary" data-goto="passwords">Make a password</button>
+            <button class="glass-btn glass-btn--secondary" data-goto="vault">Open the vault</button>
+            <button class="glass-btn glass-btn--tertiary" data-goto="system">System info</button>
+          </div>
+        </div>
+
+        <div class="grid grid--3">
+          <div class="glass-card tile" data-goto="passwords">
+            <h4>Passwords</h4>
+            <p>Strong random passwords with a live strength read-out.</p>
+          </div>
+          <div class="glass-card tile" data-goto="usernames">
+            <h4>Usernames</h4>
+            <p>Four naming styles, generated from a word you choose.</p>
+          </div>
+          <div class="glass-card tile" data-goto="tokens">
+            <h4>Keys &amp; UUIDs</h4>
+            <p>Hex, base64url and version-4 UUIDs for any project.</p>
+          </div>
+          <div class="glass-card tile" data-goto="hash">
+            <h4>Hashes</h4>
+            <p>MD5, SHA-1, SHA-256 and SHA-512 of any text.</p>
+          </div>
+          <div class="glass-card tile" data-goto="text">
+            <h4>Text tools</h4>
+            <p>Case, slugs, base64, URL encoding, line sorting.</p>
+          </div>
+          <div class="glass-card tile" data-goto="vault">
+            <h4>Secure vault</h4>
+            <p>Notes encrypted on your machine with AES-256.</p>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="cardhead">
+            <h4>Shortcuts</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--tertiary" data-goto="settings">Edit</button>
+          </div>
+          <div class="chips" id="linkChips"></div>
+        </div>
+      </section>
+
+      <!-- -------------------------- PASSWORDS -------------------------- -->
+      <section class="view" data-view="passwords">
+        <div class="glass-card">
+          <div class="rangerow">
+            <div class="glass-range-group">
+              <div class="glass-range-header">
+                <span class="glass-label">Length</span>
+                <span class="glass-range-value" id="pwLenOut">20</span>
+              </div>
+              <input class="glass-range" type="range" id="pwLen" min="6" max="128" value="20">
+            </div>
+            <div class="glass-range-group">
+              <div class="glass-range-header">
+                <span class="glass-label">How many</span>
+                <span class="glass-range-value" id="pwCountOut">5</span>
+              </div>
+              <input class="glass-range" type="range" id="pwCount" min="1" max="25" value="5">
+            </div>
+          </div>
+
+          <div class="toggles">
+            <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" id="pwLower" checked><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">a-z</span></label>
+            <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" id="pwUpper" checked><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">A-Z</span></label>
+            <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" id="pwDigits" checked><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">0-9</span></label>
+            <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" id="pwSymbols" checked><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">Symbols</span></label>
+            <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" id="pwNoAmb"><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">No look-alikes</span></label>
+          </div>
+
+          <div class="actions">
+            <button class="glass-btn glass-btn--primary" id="pwGo">Generate</button>
+            <span class="glass-badge glass-badge--primary" id="pwBits">&nbsp;</span>
+          </div>
+        </div>
+
+        <div class="glass-card" id="pwCard" hidden>
+          <div class="cardhead">
+            <h4>Results</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--tertiary" data-copyall="pwOut">Copy all</button>
+          </div>
+          <ul class="glass-list" id="pwOut"></ul>
+        </div>
+      </section>
+
+      <!-- -------------------------- USERNAMES -------------------------- -->
+      <section class="view" data-view="usernames">
+        <div class="glass-card">
+          <label class="glass-label" for="unBase">Start from a word (optional)</label>
+          <input class="glass-input" id="unBase" placeholder="jacob" maxlength="20">
+
+          <span class="glass-label">Style</span>
+          <div class="glass-segmented glass-segmented--full" id="unStyle">
+            <button class="glass-segmented__item is-on" data-style="clean" aria-pressed="true">Clean</button>
+            <button class="glass-segmented__item" data-style="words">Word pair</button>
+            <button class="glass-segmented__item" data-style="dotted">Dotted</button>
+            <button class="glass-segmented__item" data-style="numbered">Numbered</button>
+          </div>
+
+          <div class="actions">
+            <button class="glass-btn glass-btn--primary" id="unGo">Generate</button>
+          </div>
+        </div>
+
+        <div class="glass-card" id="unCard" hidden>
+          <div class="cardhead">
+            <h4>Suggestions</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--tertiary" data-copyall="unOut">Copy all</button>
+          </div>
+          <ul class="glass-list" id="unOut"></ul>
+        </div>
+      </section>
+
+      <!-- ---------------------------- TOKENS ---------------------------- -->
+      <section class="view" data-view="tokens">
+        <div class="glass-card">
+          <div class="rangerow">
+            <div class="glass-range-group">
+              <div class="glass-range-header">
+                <span class="glass-label">Size in bytes</span>
+                <span class="glass-range-value" id="tkBytesOut">32</span>
+              </div>
+              <input class="glass-range" type="range" id="tkBytes" min="8" max="128" step="4" value="32">
+            </div>
+            <div class="glass-range-group">
+              <div class="glass-range-header">
+                <span class="glass-label">How many</span>
+                <span class="glass-range-value" id="tkCountOut">5</span>
+              </div>
+              <input class="glass-range" type="range" id="tkCount" min="1" max="20" value="5">
+            </div>
+          </div>
+          <div class="actions">
+            <button class="glass-btn glass-btn--primary" id="tkGo">Generate</button>
+          </div>
+        </div>
+
+        <div class="glass-card" id="tkCard" hidden>
+          <div class="glass-segmented glass-segmented--full" id="tkTabs">
+            <button class="glass-segmented__item is-on" data-kind="hex" aria-pressed="true">Hex</button>
+            <button class="glass-segmented__item" data-kind="base64">Base64url</button>
+            <button class="glass-segmented__item" data-kind="uuid">UUID v4</button>
+          </div>
+          <ul class="glass-list" id="tkOut"></ul>
+        </div>
+      </section>
+
+      <!-- ----------------------------- HASH ----------------------------- -->
+      <section class="view" data-view="hash">
+        <div class="glass-card">
+          <label class="glass-label" for="hsIn">Text to hash</label>
+          <textarea class="glass-textarea" id="hsIn" rows="5" placeholder="Type or paste anything"></textarea>
+          <div class="actions">
+            <button class="glass-btn glass-btn--primary" id="hsGo">Hash it</button>
+            <span class="glass-hint" id="hsBytes"></span>
+          </div>
+        </div>
+        <div class="glass-card" id="hsCard" hidden>
+          <ul class="glass-list" id="hsOut"></ul>
+        </div>
+      </section>
+
+      <!-- ----------------------------- TEXT ----------------------------- -->
+      <section class="view" data-view="text">
+        <div class="glass-card">
+          <label class="glass-label" for="txIn">Input</label>
+          <textarea class="glass-textarea" id="txIn" rows="6" placeholder="Paste your text here"></textarea>
+          <div class="chips chips--ops" id="txOps">
+            <button class="glass-badge glass-badge--interactive" data-op="upper">UPPER</button>
+            <button class="glass-badge glass-badge--interactive" data-op="lower">lower</button>
+            <button class="glass-badge glass-badge--interactive" data-op="title">Title</button>
+            <button class="glass-badge glass-badge--interactive" data-op="trim">Trim</button>
+            <button class="glass-badge glass-badge--interactive" data-op="slug">Slug</button>
+            <button class="glass-badge glass-badge--interactive" data-op="reverse">Reverse</button>
+            <button class="glass-badge glass-badge--interactive" data-op="b64encode">Base64 →</button>
+            <button class="glass-badge glass-badge--interactive" data-op="b64decode">← Base64</button>
+            <button class="glass-badge glass-badge--interactive" data-op="urlencode">URL →</button>
+            <button class="glass-badge glass-badge--interactive" data-op="urldecode">← URL</button>
+            <button class="glass-badge glass-badge--interactive" data-op="sortlines">Sort lines</button>
+            <button class="glass-badge glass-badge--interactive" data-op="dedupe">Dedupe</button>
+            <button class="glass-badge glass-badge--interactive" data-op="shufflelines">Shuffle</button>
+          </div>
+          <p class="glass-hint" id="txStats"></p>
+        </div>
+        <div class="glass-card" id="txCard" hidden>
+          <div class="cardhead">
+            <h4>Output</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--tertiary" id="txCopy">Copy</button>
+          </div>
+          <pre class="codeblock" id="txOut"></pre>
+        </div>
+      </section>
+
+      <!-- ---------------------------- VAULT ---------------------------- -->
+      <section class="view" data-view="vault">
+        <div class="glass-card" id="vaultLock">
+          <div class="glass-status">
+            <h4 id="vaultLockTitle">Unlock the vault</h4>
+            <p class="glass-hint" id="vaultLockHint">Notes are encrypted on this machine with AES-256-GCM. Nobody can read them without this password — not even this app.</p>
+          </div>
+          <label class="glass-label" for="vaultPw">Master password</label>
+          <input class="glass-input" type="password" id="vaultPw" placeholder="At least 8 characters" autocomplete="off">
+          <div class="actions">
+            <button class="glass-btn glass-btn--primary" id="vaultUnlock">Unlock</button>
+          </div>
+        </div>
+
+        <div id="vaultOpen" hidden>
+          <div class="glass-card">
+            <div class="cardhead">
+              <h4>New note</h4>
+              <button class="glass-btn glass-btn--sm glass-btn--tertiary" id="vaultLockBtn">Lock</button>
+            </div>
+            <input class="glass-input" id="noteTitle" placeholder="Title" maxlength="120">
+            <textarea class="glass-textarea" id="noteBody" rows="4" placeholder="Anything you want to keep safe"></textarea>
+            <div class="actions">
+              <button class="glass-btn glass-btn--primary" id="noteSave">Save note</button>
+              <button class="glass-btn glass-btn--tertiary" id="noteClear" hidden>Cancel edit</button>
+            </div>
+          </div>
+          <div class="glass-card">
+            <h4>Saved notes</h4>
+            <ul class="glass-list" id="noteList"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------- SYSTEM ---------------------------- -->
+      <section class="view" data-view="system">
+        <div class="glass-card">
+          <div class="cardhead">
+            <h4>This machine</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--tertiary" id="sysRefresh">Refresh</button>
+          </div>
+          <ul class="glass-list" id="sysOut"></ul>
+        </div>
+      </section>
+
+      <!-- --------------------------- SETTINGS --------------------------- -->
+      <section class="view" data-view="settings">
+        <div class="glass-card">
+          <h4>Look and feel</h4>
+
+          <span class="glass-label">Theme</span>
+          <!-- data-mode, not data-theme: GlassKit scopes its colour tokens on
+               [data-theme], so that attribute on a button would restyle it. -->
+          <div class="glass-segmented glass-segmented--full" id="setTheme">
+            <button class="glass-segmented__item" data-mode="dark">Dark</button>
+            <button class="glass-segmented__item" data-mode="light">Light</button>
+          </div>
+
+          <span class="glass-label">Welcome animation</span>
+          <div class="glass-segmented glass-segmented--full glass-segmented--wrap" id="setBg">
+            <button class="glass-segmented__item" data-bg="net">Net</button>
+            <button class="glass-segmented__item" data-bg="halo">Halo</button>
+            <button class="glass-segmented__item" data-bg="waves">Waves</button>
+            <button class="glass-segmented__item" data-bg="globe">Globe</button>
+            <button class="glass-segmented__item" data-bg="off">Off</button>
+          </div>
+
+          <div class="settingrow">
+            <div>
+              <label class="glass-label" for="setAccent">Accent colour</label>
+              <input class="glass-input" type="color" id="setAccent" value="#5b8cff">
+            </div>
+            <div>
+              <label class="glass-label" for="setGreeting">Your name</label>
+              <input class="glass-input" id="setGreeting" placeholder="Jacob" maxlength="40">
+            </div>
+          </div>
+
+          <label class="glass-toggle">
+            <input class="glass-toggle__input" type="checkbox" id="setSkip">
+            <span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span>
+            <span class="glass-toggle__label">Skip the welcome animation next time</span>
+          </label>
+        </div>
+
+        <div class="glass-card">
+          <div class="cardhead">
+            <h4>Shortcuts</h4>
+            <button class="glass-btn glass-btn--sm glass-btn--secondary" id="linkAdd">Add</button>
+          </div>
+          <p class="glass-hint">Web links, or a file or folder on this machine.</p>
+          <ul class="glass-list" id="linkList"></ul>
+        </div>
+
+        <div class="glass-card">
+          <h4>About</h4>
+          <ul class="glass-list" id="aboutList"></ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/vanta.net.min.js"></script>
+<script src="vendor/vanta.halo.min.js"></script>
+<script src="vendor/vanta.waves.min.js"></script>
+<script src="vendor/vanta.globe.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
