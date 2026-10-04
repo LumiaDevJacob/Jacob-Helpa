@@ -38,59 +38,54 @@ Click any generated value to copy it. `Ctrl`+`1` to `Ctrl`+`9` jump between page
 
 ## How it works
 
-The `.exe` is a small Go web server with the whole interface built into it. On
-launch it binds to a random port on `127.0.0.1` and opens a Chromium-based
-browser (Edge, Chrome or Brave) in app mode, which gives a clean window with no
-tabs or address bar. If none of those are installed it falls back to your
-default browser.
+The app is built with [Wails](https://wails.io). The interface is HTML and CSS
+embedded in the executable, drawn in a native window by the WebView that ships
+with Windows. The frontend calls Go methods directly, so there is no browser, no
+local server, no port and no token.
 
-Nothing leaves your machine:
+Nothing leaves your machine. Every library is bundled into the executable, and
+the app makes no network requests at all.
 
-- The listener is bound to `127.0.0.1`, so it is never reachable from the network.
-- Every request needs a session token generated fresh on each launch.
-- Requests with an unexpected `Host` or `Origin` header are refused, which blocks DNS rebinding.
-- There are no external requests at all — every library is bundled into the executable.
+Windows 11 and up-to-date Windows 10 already have the WebView2 runtime. On an
+older machine the app offers to fetch it on first run.
 
 ## Building it
 
-You need [Go](https://go.dev/dl/) 1.24 or newer. There are no other
-dependencies and nothing to download.
+You need [Go](https://go.dev/dl/) 1.24 or newer. Nothing else - no Wails CLI,
+no Node, no C compiler, because the Wails Windows backend is pure Go.
 
 ```sh
-./build.sh windows   # dist/Jacob Helpa.exe
-./build.sh           # Windows, Linux and macOS
+./build.sh      # dist/Jacob Helpa.exe
 ```
 
-The Windows build cross-compiles from any operating system:
+That works from Windows, macOS or Linux. Under the hood it is just:
 
 ```sh
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
   go build -ldflags="-s -w -H=windowsgui" -o "Jacob Helpa.exe" .
 ```
 
-To run it locally while working on it:
-
-```sh
-go run .
-```
+Builds for Linux and macOS are the exception: those backends need CGO and the
+system webkit headers, so they have to be built on the machine they target with
+`wails build`.
 
 ## Project layout
 
 ```
-main.go        launcher: logging, the listener, shutdown
-app.go         app state, config file handling
-server.go      routes, session guard, the boot event stream
-boot.go        the startup checks shown on the welcome screen
-tools.go       passwords, usernames, keys, hashes, text, system info
-vault.go       encrypted notes
-launcher.go    opening the app window and external links
-web/           the interface (embedded into the executable)
+main.go           the Wails window
+app.go            app state, config, and the methods bound to the frontend
+boot.go           the startup checks shown on the welcome screen
+tools.go          passwords, usernames, keys, hashes, text, system info
+vault.go          encrypted notes
+open.go           opening files and folders
+frontend/dist/    the interface (embedded into the executable)
 ```
 
 ## Credits
 
-The interface is built on two open source projects, bundled under `web/vendor`
-with their licences:
+The app is built with [Wails](https://github.com/wailsapp/wails) (MIT). The
+interface uses two more open source projects, bundled under
+`frontend/dist/vendor` with their licences:
 
 - [GlassKit](https://github.com/JUNGHERZ/GlassKit) — the glass component library (MIT)
 - [Vanta.js](https://github.com/tengbao/vanta) and [three.js](https://github.com/mrdoob/three.js) — the animated welcome backgrounds (MIT)

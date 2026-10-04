@@ -1,76 +1,75 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// app holds everything the HTTP handlers need. One instance per process.
-type app struct {
-	token     string // session token, minted fresh on every launch
-	host      string // 127.0.0.1:port, filled in once the listener is up
+// App is the object Wails binds to the frontend. Every exported method on it
+// becomes callable from JavaScript as window.go.main.App.<Name>().
+type App struct {
+	ctx       context.Context
 	startedAt time.Time
 
-	done     chan struct{} // closed when the UI asks us to quit
-	doneOnce sync.Once
-
 	mu     sync.Mutex
-	config *config
+	config *Config
 	vault  *vault
 }
 
-// config is the small bit of state that survives a restart.
-type config struct {
+// Config is the small bit of state that survives a restart.
+type Config struct {
 	Theme      string `json:"theme"`      // "dark" or "light"
-	Background string `json:"background"` // vanta effect name, or "off"
+	Background string `json:"background"` // welcome animation, or "off"
 	Accent     string `json:"accent"`     // hex colour for the UI accent
 	Greeting   string `json:"greeting"`   // name used on the welcome screen
 	SkipIntro  bool   `json:"skipIntro"`  // jump straight past the welcome animation
-	Links      []link `json:"links"`      // quick-launch shortcuts
+	Links      []Link `json:"links"`      // quick-launch shortcuts
 	Updated    string `json:"updated"`
 }
 
-type link struct {
+// Link is one quick-launch shortcut.
+type Link struct {
 	Label  string `json:"label"`
 	Target string `json:"target"`
 }
 
-func defaultConfig() *config {
-	return &config{
+// Meta describes the running app.
+type Meta struct {
+	App     string `json:"app"`
+	Version string `json:"version"`
+	Config  Config `json:"config"`
+}
+
+func defaultConfig() *Config {
+	return &Config{
 		Theme:      "dark",
 		Background: "net",
 		Accent:     "#5b8cff",
-		Greeting:   "",
-		SkipIntro:  false,
-		Links: []link{
+		Links: []Link{
 			{Label: "GitHub", Target: "https://github.com"},
 			{Label: "Go docs", Target: "https://go.dev/doc/"},
 		},
 	}
 }
 
-func newApp() (*app, error) {
-	tok, err := newToken()
-	if err != nil {
-		return nil, err
-	}
+func newApp() (*App, error) {
 	dir, err := dataDir()
 	if err != nil {
 		return nil, err
 	}
-
-	a := &app{
-		token:     tok,
+	a := &App{
 		startedAt: time.Now(),
-		done:      make(chan struct{}),
 		config:    defaultConfig(),
 		vault:     newVault(filepath.Join(dir, "vault.dat")),
 	}
@@ -78,17 +77,111 @@ func newApp() (*app, error) {
 	return a, nil
 }
 
-func (a *app) shutdown() {
-	a.doneOnce.Do(func() { close(a.done) })
+// startup is handed the context Wails needs for window operations.
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
 }
 
-// newToken returns a 256-bit random hex string.
-func newToken() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("no secure randomness available: %w", err)
+// --- bound methods -------------------------------------------------------
+
+// GetMeta returns the app name, version and saved settings.
+func (a *App) GetMeta() Meta {
+	return Meta{App: appName, Version: version, Config: a.snapshotConfig()}
+}
+
+// GetConfig returns the saved settings.
+func (a *App) GetConfig() Config {
+	return a.snapshotConfig()
+}
+
+// SaveConfig validates and stores the settings, returning what was written.
+func (a *App) SaveConfig(incoming Config) (Config, error) {
+	if err := validateConfig(&incoming); err != nil {
+		return Config{}, err
 	}
-	return hex.EncodeToString(buf), nil
+	if err := a.saveConfig(&incoming); err != nil {
+		return Config{}, fmt.Errorf("could not save settings: %w", err)
+	}
+	return incoming, nil
+}
+
+// OpenTarget opens a web link, file or folder with whatever the system uses
+// for it. Only http and https links and paths that exist are accepted.
+func (a *App) OpenTarget(target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return fmt.Errorf("nothing to open")
+	}
+
+	if parsed, err := url.Parse(target); err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+		if parsed.Host == "" {
+			return fmt.Errorf("that link has no address")
+		}
+		wailsruntime.BrowserOpenURL(a.ctx, parsed.String())
+		return nil
+	}
+
+	if strings.Contains(target, "://") {
+		return fmt.Errorf("only http and https links, files and folders can be opened")
+	}
+	if _, err := os.Stat(target); err != nil {
+		return fmt.Errorf("that file or folder doesn't exist")
+	}
+	return openPath(target)
+}
+
+// Quit closes the window and ends the program.
+func (a *App) Quit() {
+	wailsruntime.Quit(a.ctx)
+}
+
+// --- config on disk ------------------------------------------------------
+
+func validateConfig(cfg *Config) error {
+	switch cfg.Theme {
+	case "dark", "light":
+	default:
+		return fmt.Errorf("theme must be dark or light")
+	}
+	switch cfg.Background {
+	case "net", "halo", "waves", "globe", "off":
+	default:
+		return fmt.Errorf("unknown background %q", cfg.Background)
+	}
+	if !isHexColour(cfg.Accent) {
+		return fmt.Errorf("accent must be a hex colour like #5b8cff")
+	}
+	if len(cfg.Greeting) > 40 {
+		return fmt.Errorf("that name is too long")
+	}
+	if len(cfg.Links) > 40 {
+		return fmt.Errorf("40 shortcuts is the limit")
+	}
+	for i := range cfg.Links {
+		cfg.Links[i].Label = strings.TrimSpace(cfg.Links[i].Label)
+		cfg.Links[i].Target = strings.TrimSpace(cfg.Links[i].Target)
+		if cfg.Links[i].Label == "" || cfg.Links[i].Target == "" {
+			return fmt.Errorf("every shortcut needs a name and a target")
+		}
+		if len(cfg.Links[i].Label) > 60 || len(cfg.Links[i].Target) > 2000 {
+			return fmt.Errorf("that shortcut is too long")
+		}
+	}
+	return nil
+}
+
+func isHexColour(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for _, c := range s[1:] {
+		isDigit := c >= '0' && c <= '9'
+		isHex := (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isDigit && !isHex {
+			return false
+		}
+	}
+	return true
 }
 
 // dataDir is where config, the vault and the log live. It is created if needed.
@@ -130,7 +223,7 @@ func dataDir() (string, error) {
 	return dir, nil
 }
 
-func (a *app) configPath() (string, error) {
+func (a *App) configPath() (string, error) {
 	dir, err := dataDir()
 	if err != nil {
 		return "", err
@@ -140,7 +233,7 @@ func (a *app) configPath() (string, error) {
 
 // loadConfig merges the saved config over the defaults, so a config written by
 // an older version still works after an upgrade.
-func (a *app) loadConfig() {
+func (a *App) loadConfig() {
 	path, err := a.configPath()
 	if err != nil {
 		return
@@ -159,7 +252,7 @@ func (a *app) loadConfig() {
 	a.mu.Unlock()
 }
 
-func (a *app) saveConfig(cfg *config) error {
+func (a *App) saveConfig(cfg *Config) error {
 	path, err := a.configPath()
 	if err != nil {
 		return err
@@ -187,8 +280,28 @@ func (a *app) saveConfig(cfg *config) error {
 	return nil
 }
 
-func (a *app) snapshotConfig() config {
+func (a *App) snapshotConfig() Config {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return *a.config
+}
+
+// setupLogging writes a rolling log next to the app data. A Wails window has no
+// console attached, so this is the only place errors are recorded.
+func setupLogging() *os.File {
+	log.SetFlags(log.Ldate | log.Ltime)
+	dir, err := dataDir()
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(dir, "jacob-helpa.log")
+	if info, err := os.Stat(path); err == nil && info.Size() > 1<<20 {
+		_ = os.Remove(path)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil
+	}
+	log.SetOutput(f)
+	return f
 }

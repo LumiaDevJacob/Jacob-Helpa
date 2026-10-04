@@ -12,7 +12,6 @@ import (
 	"math"
 	"math/big"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -54,7 +53,8 @@ func shuffle(runes []rune) error {
 	return nil
 }
 
-type passwordRequest struct {
+// PasswordRequest is what the password panel sends.
+type PasswordRequest struct {
 	Length      int  `json:"length"`
 	Count       int  `json:"count"`
 	Lower       bool `json:"lower"`
@@ -64,18 +64,21 @@ type passwordRequest struct {
 	NoAmbiguous bool `json:"noAmbiguous"`
 }
 
-func (a *app) handlePassword(w http.ResponseWriter, r *http.Request) {
-	req := passwordRequest{Length: 20, Count: 5, Lower: true, Upper: true, Digits: true, Symbols: true}
-	if !readJSON(w, r, &req) {
-		return
-	}
+// PasswordResult is the generated set plus how strong it is.
+type PasswordResult struct {
+	Passwords []string `json:"passwords"`
+	Alphabet  int      `json:"alphabet"`
+	Bits      float64  `json:"bits"`
+	Strength  string   `json:"strength"`
+}
+
+// GeneratePasswords returns random passwords matching the requested mix.
+func (a *App) GeneratePasswords(req PasswordRequest) (PasswordResult, error) {
 	if req.Length < 4 || req.Length > 256 {
-		writeErr(w, http.StatusBadRequest, "length must be between 4 and 256")
-		return
+		return PasswordResult{}, fmt.Errorf("length must be between 4 and 256")
 	}
 	if req.Count < 1 || req.Count > 50 {
-		writeErr(w, http.StatusBadRequest, "count must be between 1 and 50")
-		return
+		return PasswordResult{}, fmt.Errorf("count must be between 1 and 50")
 	}
 
 	// Each enabled class becomes a pool; one character is taken from every pool
@@ -99,12 +102,10 @@ func (a *app) handlePassword(w http.ResponseWriter, r *http.Request) {
 	addPool(req.Symbols, symbolChars)
 
 	if len(pools) == 0 {
-		writeErr(w, http.StatusBadRequest, "pick at least one kind of character")
-		return
+		return PasswordResult{}, fmt.Errorf("pick at least one kind of character")
 	}
 	if req.Length < len(pools) {
-		writeErr(w, http.StatusBadRequest, "length is too short for that many character types")
-		return
+		return PasswordResult{}, fmt.Errorf("length is too short for that many character types")
 	}
 
 	var everything []rune
@@ -118,34 +119,31 @@ func (a *app) handlePassword(w http.ResponseWriter, r *http.Request) {
 		for _, p := range pools {
 			c, err := pick(p)
 			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
+				return PasswordResult{}, err
 			}
 			out = append(out, c)
 		}
 		for len(out) < req.Length {
 			c, err := pick(everything)
 			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
+				return PasswordResult{}, err
 			}
 			out = append(out, c)
 		}
 		if err := shuffle(out); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			return PasswordResult{}, err
 		}
 		results = append(results, string(out))
 	}
 
 	// Entropy of the generating process: length x log2(alphabet size).
 	bits := float64(req.Length) * math.Log2(float64(len(everything)))
-	writeJSON(w, http.StatusOK, map[string]any{
-		"passwords": results,
-		"alphabet":  len(everything),
-		"bits":      math.Round(bits*10) / 10,
-		"strength":  strengthLabel(bits),
-	})
+	return PasswordResult{
+		Passwords: results,
+		Alphabet:  len(everything),
+		Bits:      math.Round(bits*10) / 10,
+		Strength:  strengthLabel(bits),
+	}, nil
 }
 
 func without(set []rune, exclude string) []rune {
@@ -175,7 +173,8 @@ func strengthLabel(bits float64) string {
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)
 
-type usernameRequest struct {
+// UsernameRequest is what the username panel sends.
+type UsernameRequest struct {
 	Base  string `json:"base"`
 	Style string `json:"style"`
 	Count int    `json:"count"`
@@ -192,14 +191,10 @@ var (
 	}
 )
 
-func (a *app) handleUsername(w http.ResponseWriter, r *http.Request) {
-	req := usernameRequest{Style: "clean", Count: 8}
-	if !readJSON(w, r, &req) {
-		return
-	}
+// GenerateUsernames returns name suggestions in the requested style.
+func (a *App) GenerateUsernames(req UsernameRequest) ([]string, error) {
 	if req.Count < 1 || req.Count > 50 {
-		writeErr(w, http.StatusBadRequest, "count must be between 1 and 50")
-		return
+		return nil, fmt.Errorf("count must be between 1 and 50")
 	}
 
 	base := nonAlphanumeric.ReplaceAllString(strings.ToLower(strings.TrimSpace(req.Base)), "")
@@ -211,12 +206,11 @@ func (a *app) handleUsername(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < req.Count; i++ {
 		name, err := makeUsername(base, req.Style)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			return nil, err
 		}
 		results = append(results, name)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"usernames": results})
+	return results, nil
 }
 
 func makeUsername(base, style string) (string, error) {
@@ -291,65 +285,69 @@ func makeUsername(base, style string) (string, error) {
 	}
 }
 
-func (a *app) handleHash(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Text string `json:"text"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
-	data := []byte(req.Text)
+// HashResult holds the digests of some text.
+type HashResult struct {
+	Bytes  int    `json:"bytes"`
+	MD5    string `json:"md5"`
+	SHA1   string `json:"sha1"`
+	SHA256 string `json:"sha256"`
+	SHA512 string `json:"sha512"`
+}
+
+// HashText returns the common digests of the given text.
+func (a *App) HashText(text string) HashResult {
+	data := []byte(text)
 	md5sum := md5.Sum(data)
 	sha1sum := sha1.Sum(data)
 	sha256sum := sha256.Sum256(data)
 	sha512sum := sha512.Sum512(data)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"bytes":  len(data),
-		"md5":    hex.EncodeToString(md5sum[:]),
-		"sha1":   hex.EncodeToString(sha1sum[:]),
-		"sha256": hex.EncodeToString(sha256sum[:]),
-		"sha512": hex.EncodeToString(sha512sum[:]),
-	})
+	return HashResult{
+		Bytes:  len(data),
+		MD5:    hex.EncodeToString(md5sum[:]),
+		SHA1:   hex.EncodeToString(sha1sum[:]),
+		SHA256: hex.EncodeToString(sha256sum[:]),
+		SHA512: hex.EncodeToString(sha512sum[:]),
+	}
 }
 
-func (a *app) handleTokens(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Bytes int `json:"bytes"`
-		Count int `json:"count"`
-	}
-	req.Bytes, req.Count = 32, 5
-	if !readJSON(w, r, &req) {
-		return
-	}
+// TokenRequest is what the keys panel sends.
+type TokenRequest struct {
+	Bytes int `json:"bytes"`
+	Count int `json:"count"`
+}
+
+// TokenResult holds the same random values in three encodings.
+type TokenResult struct {
+	Hex    []string `json:"hex"`
+	Base64 []string `json:"base64"`
+	UUID   []string `json:"uuid"`
+}
+
+// GenerateTokens returns random values as hex, base64url and UUIDs.
+func (a *App) GenerateTokens(req TokenRequest) (TokenResult, error) {
 	if req.Bytes < 4 || req.Bytes > 256 {
-		writeErr(w, http.StatusBadRequest, "size must be between 4 and 256 bytes")
-		return
+		return TokenResult{}, fmt.Errorf("size must be between 4 and 256 bytes")
 	}
 	if req.Count < 1 || req.Count > 25 {
-		writeErr(w, http.StatusBadRequest, "count must be between 1 and 25")
-		return
+		return TokenResult{}, fmt.Errorf("count must be between 1 and 25")
 	}
 
-	hexes := make([]string, 0, req.Count)
-	b64s := make([]string, 0, req.Count)
-	uuids := make([]string, 0, req.Count)
+	out := TokenResult{}
 	for i := 0; i < req.Count; i++ {
 		buf := make([]byte, req.Bytes)
 		if _, err := rand.Read(buf); err != nil {
-			writeErr(w, http.StatusInternalServerError, "no secure randomness available")
-			return
+			return TokenResult{}, fmt.Errorf("no secure randomness available: %w", err)
 		}
-		hexes = append(hexes, hex.EncodeToString(buf))
-		b64s = append(b64s, base64.RawURLEncoding.EncodeToString(buf))
+		out.Hex = append(out.Hex, hex.EncodeToString(buf))
+		out.Base64 = append(out.Base64, base64.RawURLEncoding.EncodeToString(buf))
 
 		u, err := uuidV4()
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			return TokenResult{}, err
 		}
-		uuids = append(uuids, u)
+		out.UUID = append(out.UUID, u)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"hex": hexes, "base64": b64s, "uuid": uuids})
+	return out, nil
 }
 
 // uuidV4 builds a random (version 4) UUID.
@@ -363,87 +361,94 @@ func uuidV4() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16]), nil
 }
 
-func (a *app) handleText(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Text string `json:"text"`
-		Op   string `json:"op"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
+// TextStats counts what was fed in.
+type TextStats struct {
+	Characters int `json:"characters"`
+	Words      int `json:"words"`
+	Lines      int `json:"lines"`
+	Bytes      int `json:"bytes"`
+}
 
+// TextResult is a converted string plus the stats of the input.
+type TextResult struct {
+	Result string    `json:"result"`
+	Stats  TextStats `json:"stats"`
+}
+
+// TransformText applies one named conversion to the given text.
+func (a *App) TransformText(text, op string) (TextResult, error) {
 	var out string
 	var err error
-	switch req.Op {
+
+	switch op {
 	case "upper":
-		out = strings.ToUpper(req.Text)
+		out = strings.ToUpper(text)
 	case "lower":
-		out = strings.ToLower(req.Text)
+		out = strings.ToLower(text)
 	case "title":
-		out = titleCase(req.Text)
+		out = titleCase(text)
 	case "trim":
-		out = strings.TrimSpace(req.Text)
+		out = strings.TrimSpace(text)
 	case "reverse":
-		out = reverseString(req.Text)
+		out = reverseString(text)
 	case "slug":
-		out = nonAlphanumeric.ReplaceAllString(strings.ToLower(strings.TrimSpace(req.Text)), "-")
+		out = nonAlphanumeric.ReplaceAllString(strings.ToLower(strings.TrimSpace(text)), "-")
 		out = strings.Trim(out, "-")
 	case "b64encode":
-		out = base64.StdEncoding.EncodeToString([]byte(req.Text))
+		out = base64.StdEncoding.EncodeToString([]byte(text))
 	case "b64decode":
-		decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(req.Text))
+		decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(text))
 		if decodeErr != nil {
 			err = fmt.Errorf("that isn't valid base64")
 		} else {
 			out = string(decoded)
 		}
 	case "urlencode":
-		out = url.QueryEscape(req.Text)
+		out = url.QueryEscape(text)
 	case "urldecode":
-		decoded, decodeErr := url.QueryUnescape(req.Text)
+		decoded, decodeErr := url.QueryUnescape(text)
 		if decodeErr != nil {
 			err = fmt.Errorf("that isn't valid URL encoding")
 		} else {
 			out = decoded
 		}
 	case "sortlines":
-		lines := splitLines(req.Text)
+		lines := splitLines(text)
 		sort.Strings(lines)
 		out = strings.Join(lines, "\n")
 	case "dedupe":
-		out = strings.Join(dedupeLines(splitLines(req.Text)), "\n")
+		out = strings.Join(dedupeLines(splitLines(text)), "\n")
 	case "shufflelines":
-		lines := splitLines(req.Text)
-		runeIdx := make([]rune, len(lines))
-		for i := range runeIdx {
-			runeIdx[i] = rune(i)
+		lines := splitLines(text)
+		order := make([]rune, len(lines))
+		for i := range order {
+			order[i] = rune(i)
 		}
-		if shuffleErr := shuffle(runeIdx); shuffleErr != nil {
+		if shuffleErr := shuffle(order); shuffleErr != nil {
 			err = shuffleErr
 		} else {
 			shuffled := make([]string, len(lines))
-			for i, j := range runeIdx {
+			for i, j := range order {
 				shuffled[i] = lines[int(j)]
 			}
 			out = strings.Join(shuffled, "\n")
 		}
 	default:
-		err = fmt.Errorf("unknown operation %q", req.Op)
+		err = fmt.Errorf("unknown operation %q", op)
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+		return TextResult{}, err
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"result": out,
-		"stats": map[string]int{
-			"characters": len([]rune(req.Text)),
-			"words":      len(strings.Fields(req.Text)),
-			"lines":      len(splitLines(req.Text)),
-			"bytes":      len(req.Text),
+	return TextResult{
+		Result: out,
+		Stats: TextStats{
+			Characters: len([]rune(text)),
+			Words:      len(strings.Fields(text)),
+			Lines:      len(splitLines(text)),
+			Bytes:      len(text),
 		},
-	})
+	}, nil
 }
 
 func titleCase(s string) string {
@@ -487,7 +492,24 @@ func dedupeLines(lines []string) []string {
 	return out
 }
 
-func (a *app) handleSysinfo(w http.ResponseWriter, r *http.Request) {
+// SysInfo describes the machine the app is running on.
+type SysInfo struct {
+	OS         string   `json:"os"`
+	Arch       string   `json:"arch"`
+	CPUs       int      `json:"cpus"`
+	Hostname   string   `json:"hostname"`
+	Username   string   `json:"username"`
+	GoVersion  string   `json:"goVersion"`
+	AppVersion string   `json:"appVersion"`
+	Uptime     string   `json:"uptime"`
+	MemoryMB   float64  `json:"memoryMB"`
+	Addresses  []string `json:"addresses"`
+	LocalTime  string   `json:"localTime"`
+	DataDir    string   `json:"dataDir"`
+}
+
+// SystemInfo reports what this machine looks like.
+func (a *App) SystemInfo() SysInfo {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 
@@ -502,20 +524,20 @@ func (a *app) handleSysinfo(w http.ResponseWriter, r *http.Request) {
 		username = u
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"os":         runtime.GOOS,
-		"arch":       runtime.GOARCH,
-		"cpus":       runtime.NumCPU(),
-		"hostname":   hostname,
-		"username":   username,
-		"goVersion":  runtime.Version(),
-		"appVersion": version,
-		"uptime":     formatDuration(time.Since(a.startedAt)),
-		"memoryMB":   math.Round(float64(mem.Sys)/(1024*1024)*10) / 10,
-		"addresses":  localAddresses(),
-		"localTime":  time.Now().Format("Mon 2 Jan 2006, 15:04:05 MST"),
-		"dataDir":    dataDirOrEmpty(),
-	})
+	return SysInfo{
+		OS:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		CPUs:       runtime.NumCPU(),
+		Hostname:   hostname,
+		Username:   username,
+		GoVersion:  runtime.Version(),
+		AppVersion: version,
+		Uptime:     formatDuration(time.Since(a.startedAt)),
+		MemoryMB:   math.Round(float64(mem.Sys)/(1024*1024)*10) / 10,
+		Addresses:  localAddresses(),
+		LocalTime:  time.Now().Format("Mon 2 Jan 2006, 15:04:05 MST"),
+		DataDir:    dataDirOrEmpty(),
+	}
 }
 
 func dataDirOrEmpty() string {

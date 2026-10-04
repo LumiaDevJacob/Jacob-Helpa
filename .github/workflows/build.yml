@@ -1,7 +1,7 @@
 name: Build
 
-# Builds the executables on every push, and attaches them to a release
-# whenever a version tag is pushed (for example: git tag v2.0.0 && git push --tags).
+# Builds the Windows .exe on every push, and attaches it to a release whenever
+# a version tag is pushed (for example: git tag v3.0.0 && git push --tags).
 on:
   push:
     branches: ["**"]
@@ -26,18 +26,18 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
       - name: Vet
-        run: go vet ./...
+        run: GOOS=windows go vet ./...
 
-      - name: Build every target
+      - name: Build the Windows exe
         run: ./build.sh
 
-      - name: Upload the builds
+      - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
-          name: jacob-helpa
+          name: jacob-helpa-windows
           path: dist/
 
-      - name: Attach the builds to the release
+      - name: Attach the build to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:

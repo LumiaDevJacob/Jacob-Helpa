@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -30,7 +29,7 @@ const (
 
 var errLocked = errors.New("the vault is locked")
 
-type note struct {
+type Note struct {
 	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Body    string `json:"body"`
@@ -43,7 +42,7 @@ type vault struct {
 	mu    sync.Mutex
 	key   []byte // nil while locked
 	salt  []byte
-	notes []note
+	notes []Note
 }
 
 func newVault(path string) *vault {
@@ -114,7 +113,7 @@ func (v *vault) unlock(password string) error {
 		return errors.New("wrong master password")
 	}
 
-	var notes []note
+	var notes []Note
 	if len(plain) > 0 {
 		if err := json.Unmarshal(plain, &notes); err != nil {
 			return errors.New("the vault contents are corrupt")
@@ -205,40 +204,40 @@ func decrypt(key, sealed []byte) ([]byte, error) {
 	return gcm.Open(nil, nonce, body, nil)
 }
 
-func (v *vault) list() ([]note, error) {
+func (v *vault) list() ([]Note, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.key == nil {
 		return nil, errLocked
 	}
-	out := append([]note(nil), v.notes...)
+	out := append([]Note(nil), v.notes...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
 	return out, nil
 }
 
-func (v *vault) save(n note) (note, error) {
+func (v *vault) save(n Note) (Note, error) {
 	n.Title = strings.TrimSpace(n.Title)
 	if n.Title == "" {
-		return note{}, errors.New("give the note a title")
+		return Note{}, errors.New("give the Note a title")
 	}
 	if len(n.Title) > 120 {
-		return note{}, errors.New("that title is too long")
+		return Note{}, errors.New("that title is too long")
 	}
 	if len(n.Body) > 100_000 {
-		return note{}, errors.New("that note is too long")
+		return Note{}, errors.New("that Note is too long")
 	}
 	n.Updated = time.Now().Format(time.RFC3339)
 
 	v.mu.Lock()
 	if v.key == nil {
 		v.mu.Unlock()
-		return note{}, errLocked
+		return Note{}, errLocked
 	}
 	if n.ID == "" {
 		id, err := uuidV4()
 		if err != nil {
 			v.mu.Unlock()
-			return note{}, err
+			return Note{}, err
 		}
 		n.ID = id
 		v.notes = append(v.notes, n)
@@ -253,13 +252,13 @@ func (v *vault) save(n note) (note, error) {
 		}
 		if !found {
 			v.mu.Unlock()
-			return note{}, errors.New("that note no longer exists")
+			return Note{}, errors.New("that Note no longer exists")
 		}
 	}
 	v.mu.Unlock()
 
 	if err := v.persist(); err != nil {
-		return note{}, err
+		return Note{}, err
 	}
 	return n, nil
 }
@@ -270,7 +269,7 @@ func (v *vault) remove(id string) error {
 		v.mu.Unlock()
 		return errLocked
 	}
-	kept := make([]note, 0, len(v.notes))
+	kept := make([]Note, 0, len(v.notes))
 	removed := false
 	for _, n := range v.notes {
 		if n.ID == id {
@@ -283,84 +282,49 @@ func (v *vault) remove(id string) error {
 	v.mu.Unlock()
 
 	if !removed {
-		return errors.New("that note no longer exists")
+		return errors.New("that Note no longer exists")
 	}
 	return v.persist()
 }
 
-// --- handlers ------------------------------------------------------------
+// --- bound methods -------------------------------------------------------
 
-func (a *app) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"exists":   a.vault.exists(),
-		"unlocked": a.vault.isUnlocked(),
-	})
+// VaultStatus says whether a vault exists on disk and whether it is open.
+type VaultStatus struct {
+	Exists   bool `json:"exists"`
+	Unlocked bool `json:"unlocked"`
 }
 
-func (a *app) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if err := a.vault.unlock(req.Password); err != nil {
-		writeErr(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-	notes, err := a.vault.list()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"unlocked": true, "notes": notes})
+// GetVaultStatus reports whether there is a vault and whether it is unlocked.
+func (a *App) GetVaultStatus() VaultStatus {
+	return VaultStatus{Exists: a.vault.exists(), Unlocked: a.vault.isUnlocked()}
 }
 
-func (a *app) handleVaultLock(w http.ResponseWriter, r *http.Request) {
+// UnlockVault opens the vault, creating it if this is the first time, and
+// returns the notes inside.
+func (a *App) UnlockVault(password string) ([]Note, error) {
+	if err := a.vault.unlock(password); err != nil {
+		return nil, err
+	}
+	return a.vault.list()
+}
+
+// LockVault closes the vault and wipes the key from memory.
+func (a *App) LockVault() {
 	a.vault.lock()
-	writeJSON(w, http.StatusOK, map[string]any{"unlocked": false})
 }
 
-func (a *app) handleVaultList(w http.ResponseWriter, r *http.Request) {
-	notes, err := a.vault.list()
-	if err != nil {
-		writeErr(w, http.StatusLocked, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"notes": notes})
+// ListNotes returns the saved notes, newest first.
+func (a *App) ListNotes() ([]Note, error) {
+	return a.vault.list()
 }
 
-func (a *app) handleVaultSave(w http.ResponseWriter, r *http.Request) {
-	var n note
-	if !readJSON(w, r, &n) {
-		return
-	}
-	saved, err := a.vault.save(n)
-	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errLocked) {
-			status = http.StatusLocked
-		}
-		writeErr(w, status, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, saved)
+// SaveNote stores a new note, or updates one that already has an id.
+func (a *App) SaveNote(n Note) (Note, error) {
+	return a.vault.save(n)
 }
 
-func (a *app) handleVaultDelete(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if err := a.vault.remove(req.ID); err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errLocked) {
-			status = http.StatusLocked
-		}
-		writeErr(w, status, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+// DeleteNote removes a note for good.
+func (a *App) DeleteNote(id string) error {
+	return a.vault.remove(id)
 }

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Jacob Helpa",
+  "outputfilename": "Jacob Helpa",
+  "frontend:dir": "frontend",
+  "wailsjsdir": "./frontend",
+  "info": {
+    "productName": "Jacob Helpa",
+    "productVersion": "3.0.0",
+    "comments": "A small desktop toolkit."
+  }
+}

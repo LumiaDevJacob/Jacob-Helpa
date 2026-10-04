@@ -11,22 +11,29 @@
   let config = null;
   let vantaScene = null;
 
-  /* ---------------------------------------------------------------- api */
+  /* ---------------------------------------------------------------- go */
 
-  async function api(path, body) {
-    const res = await fetch(path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: body === undefined ? {} : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    let data = {};
-    try {
-      data = await res.json();
-    } catch {
-      /* some responses have no body */
+  // Wails exposes every exported method on the Go App struct here. The runtime
+  // injects this object before our scripts run, so there is no server, no fetch
+  // and no URLs anywhere in this file.
+  const backend = () => {
+    const bound = window.go && window.go.main && window.go.main.App;
+    if (!bound) throw new Error("The app backend isn't ready yet.");
+    return bound;
+  };
+
+  // Go methods that return (value, error) reject the promise on error, and the
+  // rejection is a plain string rather than an Error.
+  async function call(name, ...args) {
+    const bound = backend();
+    if (typeof bound[name] !== "function") {
+      throw new Error(`Missing backend method: ${name}`);
     }
-    if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status})`);
-    return data;
+    try {
+      return await bound[name](...args);
+    } catch (err) {
+      throw new Error(typeof err === "string" ? err : err && err.message ? err.message : String(err));
+    }
   }
 
   /* -------------------------------------------------------------- toast */
@@ -149,51 +156,34 @@
 
   /* --------------------------------------------------------------- boot */
 
-  function runBootSequence() {
-    return new Promise((resolve) => {
-      const fill = $("bootFill");
-      const label = $("bootLabel");
-      const pct = $("bootPct");
-      const log = $("bootLog");
-      const stream = new EventSource("/api/boot");
-      let seen = 0;
-      let settled = false;
-      let safety = 0;
+  async function runBootSequence() {
+    const fill = $("bootFill");
+    const label = $("bootLabel");
+    const pct = $("bootPct");
+    const log = $("bootLog");
 
-      // The safety timer below can fire long after the welcome screen has been
-      // taken out of the page, so finish() runs at most once and never assumes
-      // its elements are still there.
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(safety);
-        stream.close();
-        const boot = $("boot");
-        if (boot) boot.classList.add("is-done");
-        if (fill) fill.style.width = "100%";
-        if (pct) pct.textContent = "100%";
-        resolve();
-      };
+    let steps = [];
+    try {
+      steps = await call("BootSteps");
+    } catch (err) {
+      console.error(err);
+    }
+    if (!steps.length) {
+      steps = [{ label: "Ready", detail: "", ok: true, index: 1, total: 1 }];
+    }
 
-      stream.onmessage = (ev) => {
-        if (settled) return;
-        let step;
-        try {
-          step = JSON.parse(ev.data);
-        } catch {
-          return;
-        }
-        seen += 1;
-        const total = step.total || 7;
-        const percent = Math.min(100, Math.round((step.index || seen) / total * 100));
-        fill.style.width = percent + "%";
-        pct.textContent = percent + "%";
-        label.textContent = step.label;
+    for (const step of steps) {
+      const total = step.total || steps.length;
+      const percent = Math.min(100, Math.round((step.index || 1) / total * 100));
+      if (fill) fill.style.width = percent + "%";
+      if (pct) pct.textContent = percent + "%";
+      if (label) label.textContent = step.label;
 
+      if (log) {
         const li = document.createElement("li");
         const tick = document.createElement("span");
         tick.className = "tick" + (step.ok ? "" : " tick--bad");
-        tick.textContent = step.ok ? "✓" : "✕";
+        tick.textContent = step.ok ? "\u2713" : "\u2715";
         const name = document.createElement("span");
         name.textContent = step.label;
         const detail = document.createElement("span");
@@ -202,15 +192,19 @@
         li.append(tick, name, detail);
         log.appendChild(li);
         log.scrollTop = log.scrollHeight;
+      }
 
-        if (step.done) finish();
-      };
+      // Paced so the sequence reads; the content itself is real.
+      if (!reduceMotion) await wait(260);
+    }
 
-      // If the stream drops we still want the app, so never hang here.
-      stream.onerror = () => finish();
-      safety = setTimeout(finish, 9000);
-    });
+    const boot = $("boot");
+    if (boot) boot.classList.add("is-done");
+    if (fill) fill.style.width = "100%";
+    if (pct) pct.textContent = "100%";
   }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   function enterApp() {
     const welcome = $("welcome");
@@ -327,7 +321,7 @@
     bindRange($("pwCount"), $("pwCountOut"));
 
     const generate = () => guard(async () => {
-      const data = await api("/api/password", {
+      const data = await call("GeneratePasswords", {
         length: Number($("pwLen").value),
         count: Number($("pwCount").value),
         lower: $("pwLower").checked,
@@ -357,8 +351,8 @@
     });
 
     on($("unGo"), "click", () => guard(async () => {
-      const data = await api("/api/username", { base: $("unBase").value, style, count: 10 });
-      renderValues($("unOut"), data.usernames);
+      const names = await call("GenerateUsernames", { base: $("unBase").value, style, count: 10 });
+      renderValues($("unOut"), names);
       $("unCard").hidden = false;
     }));
   }
@@ -386,7 +380,7 @@
     });
 
     on($("tkGo"), "click", () => guard(async () => {
-      latest = await api("/api/tokens", {
+      latest = await call("GenerateTokens", {
         bytes: Number($("tkBytes").value),
         count: Number($("tkCount").value),
       });
@@ -399,7 +393,7 @@
 
   function setupHash() {
     on($("hsGo"), "click", () => guard(async () => {
-      const data = await api("/api/hash", { text: $("hsIn").value });
+      const data = await call("HashText", $("hsIn").value);
       const list = $("hsOut");
       list.textContent = "";
       HASH_NAMES.forEach(([key, name]) => {
@@ -434,7 +428,7 @@
   function setupText() {
     $("txOps").querySelectorAll("[data-op]").forEach((btn) => {
       on(btn, "click", () => guard(async () => {
-        const data = await api("/api/text", { text: $("txIn").value, op: btn.dataset.op });
+        const data = await call("TransformText", $("txIn").value, btn.dataset.op);
         $("txOut").textContent = data.result;
         $("txCard").hidden = false;
         const s = data.stats;
@@ -454,7 +448,7 @@
   let editingNote = null;
 
   async function refreshVaultState() {
-    const state = await api("/api/vault/status");
+    const state = await call("GetVaultStatus");
     $("vaultLock").hidden = state.unlocked;
     $("vaultOpen").hidden = !state.unlocked;
     $("vaultLockTitle").textContent = state.exists ? "Unlock the vault" : "Create your vault";
@@ -463,11 +457,11 @@
   }
 
   async function loadNotes() {
-    const data = await api("/api/vault/list");
+    const notes = await call("ListNotes");
     const list = $("noteList");
     list.textContent = "";
 
-    if (!data.notes || !data.notes.length) {
+    if (!notes || !notes.length) {
       const li = document.createElement("li");
       li.className = "glass-list__item glass-list__item--center";
       li.textContent = "Nothing saved yet.";
@@ -475,7 +469,7 @@
       return;
     }
 
-    data.notes.forEach((note) => {
+    notes.forEach((note) => {
       const li = document.createElement("li");
       li.className = "glass-list__item";
       const content = document.createElement("div");
@@ -515,7 +509,7 @@
       delBtn.textContent = "Delete";
       on(delBtn, "click", () => guard(async () => {
         if (!window.confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
-        await api("/api/vault/delete", { id: note.id });
+        await call("DeleteNote", note.id);
         toast("Note deleted");
         await loadNotes();
       }));
@@ -537,7 +531,7 @@
   function setupVault() {
     const unlock = () => guard(async () => {
       const password = $("vaultPw").value;
-      await api("/api/vault/unlock", { password });
+      await call("UnlockVault", password);
       $("vaultPw").value = "";
       toast("Vault unlocked");
       await refreshVaultState();
@@ -549,17 +543,18 @@
     });
 
     on($("vaultLockBtn"), "click", () => guard(async () => {
-      await api("/api/vault/lock", {});
+      await call("LockVault");
       clearNoteForm();
       toast("Vault locked");
       await refreshVaultState();
     }));
 
     on($("noteSave"), "click", () => guard(async () => {
-      await api("/api/vault/save", {
+      await call("SaveNote", {
         id: editingNote || "",
         title: $("noteTitle").value,
         body: $("noteBody").value,
+        updated: "",
       });
       toast(editingNote ? "Note updated" : "Note saved");
       clearNoteForm();
@@ -587,7 +582,7 @@
 
   async function loadSysinfo() {
     await guard(async () => {
-      const data = await api("/api/sysinfo");
+      const data = await call("SystemInfo");
       const list = $("sysOut");
       list.textContent = "";
       SYS_ROWS.forEach(([key, label]) => {
@@ -642,7 +637,7 @@
 
   async function saveConfig(changes) {
     const next = { ...config, ...changes };
-    const saved = await api("/api/config", next);
+    const saved = await call("SaveConfig", next);
     applyConfig(saved);
   }
 
@@ -666,7 +661,7 @@
       chip.className = "glass-badge glass-badge--interactive";
       chip.textContent = item.label;
       on(chip, "click", () => guard(async () => {
-        await api("/api/open", { target: item.target });
+        await call("OpenTarget", item.target);
         toast(`Opening ${item.label}`);
       }));
       chips.appendChild(chip);
@@ -689,7 +684,7 @@
       openBtn.className = "glass-btn glass-btn--sm glass-btn--tertiary";
       openBtn.textContent = "Open";
       on(openBtn, "click", () => guard(async () => {
-        await api("/api/open", { target: item.target });
+        await call("OpenTarget", item.target);
       }));
       const delBtn = document.createElement("button");
       delBtn.className = "glass-btn glass-btn--sm glass-btn--tertiary";
@@ -750,11 +745,10 @@
       document.body.style.transition = "opacity .3s ease";
       document.body.style.opacity = "0";
       try {
-        await api("/api/quit", {});
+        await call("Quit");
       } catch {
-        /* the server is going away, so a failure here is expected */
+        /* the window is closing, so a failure here is expected */
       }
-      setTimeout(() => window.close(), 220);
     });
 
     // Ctrl+1..9 jumps between pages.
@@ -777,7 +771,7 @@
 
     let meta = { config: null, version: "2.0.0" };
     try {
-      meta = await api("/api/meta");
+      meta = await call("GetMeta");
     } catch (err) {
       console.error(err);
     }
